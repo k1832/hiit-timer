@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HIIT Training Timer</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        @keyframes zoom-in {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .animate-in { animation: zoom-in 0.3s ease-out forwards; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useCallback } = React;
+
+        // アイコンコンポーネント (SVG)
+        const PlayIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>;
+        const PauseIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>;
+        const RotateCcwIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>;
+        const SettingsIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>;
+        const Volume2Icon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>;
+        const VolumeXIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/></svg>;
+        const ChevronRightIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>;
+        const CheckCircle2Icon = () => <svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="m9 12 2 2 4-4"/></svg>;
+
+        const DEFAULT_MENU_ITEMS = [
+            { id: 1, name: '飛ばないバーピー', duration: 20, type: 'work', color: 'bg-red-500' },
+            { id: 2, name: '休憩', duration: 10, type: 'rest', color: 'bg-blue-500' },
+            { id: 3, name: '高速スクワット', duration: 20, type: 'work', color: 'bg-orange-500' },
+            { id: 4, name: '休憩', duration: 10, type: 'rest', color: 'bg-blue-500' },
+        ];
+
+        const App = () => {
+            const [items, setItems] = useState(DEFAULT_MENU_ITEMS);
+            const [currentStep, setCurrentStep] = useState(0);
+            const [timeLeft, setTimeLeft] = useState(DEFAULT_MENU_ITEMS[0].duration);
+            const [isRunning, setIsRunning] = useState(false);
+            const [isMuted, setIsMuted] = useState(false);
+            const [showSettings, setShowSettings] = useState(false);
+            const [totalSets, setTotalSets] = useState(4);
+            const [currentSet, setCurrentSet] = useState(1);
+            const [totalTimeElapsed, setTotalTimeElapsed] = useState(0);
+            const [isCompleted, setIsCompleted] = useState(false);
+
+            const timerRef = useRef(null);
+            const audioContextRef = useRef(null);
+
+            const playSound = useCallback((frequency = 440, type = 'sine', duration = 0.1) => {
+                if (isMuted) return;
+                try {
+                    if (!audioContextRef.current) {
+                        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+                    }
+                    const ctx = audioContextRef.current;
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.type = type;
+                    osc.frequency.setValueAtTime(frequency, ctx.currentTime);
+                    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.start();
+                    osc.stop(ctx.currentTime + duration);
+                } catch (e) { console.error(e); }
+            }, [isMuted]);
+
+            const handleNextStep = useCallback(() => {
+                setCurrentStep(prev => {
+                    const next = prev + 1;
+                    if (next >= items.length) {
+                        if (currentSet < totalSets || totalSets === 0) {
+                            setCurrentSet(c => c + 1);
+                            setTimeLeft(items[0].duration);
+                            return 0;
+                        } else {
+                            setIsRunning(false);
+                            setIsCompleted(true);
+                            playSound(1200, 'square', 0.8);
+                            return prev;
+                        }
+                    }
+                    setTimeLeft(items[next].duration);
+                    return next;
+                });
+            }, [items, currentSet, totalSets, playSound]);
+
+            const tick = useCallback(() => {
+                setTimeLeft(prev => {
+                    if (prev <= 1) return 0;
+                    if (prev <= 4) playSound(600, 'sine', 0.1);
+                    return prev - 1;
+                });
+
+                setTotalTimeElapsed(t => t + 1);
+            }, [playSound]);
+
+            useEffect(() => {
+                if (timeLeft === 0 && isRunning) {
+                    playSound(880, 'square', 0.3);
+                    handleNextStep();
+                }
+            }, [timeLeft, isRunning, handleNextStep, playSound]);
+
+            useEffect(() => {
+                if (isRunning) {
+                    timerRef.current = setInterval(tick, 1000);
+                } else {
+                    clearInterval(timerRef.current);
+                }
+                return () => clearInterval(timerRef.current);
+            }, [isRunning, tick]);
+
+            const toggleTimer = () => {
+                if (isCompleted) {
+                    resetTimer();
+                    setIsRunning(true);
+                } else {
+                    setIsRunning(!isRunning);
+                }
+            };
+
+            const resetTimer = () => {
+                setIsRunning(false);
+                setIsCompleted(false);
+                setCurrentStep(0);
+                setCurrentSet(1);
+                setTotalTimeElapsed(0);
+                setTimeLeft(items[0].duration);
+            };
+
+            const handleDurationChange = (id, newDuration) => {
+                const val = parseInt(newDuration) || 0;
+                const newItems = items.map(item => item.id === id ? { ...item, duration: val } : item);
+                setItems(newItems);
+                if (!isRunning && !isCompleted && currentStep === items.findIndex(i => i.id === id)) {
+                    setTimeLeft(val);
+                }
+            };
+
+            const currentItem = items[currentStep];
+            const nextItem = items[(currentStep + 1) % items.length];
+            const getBgColor = () => isCompleted ? 'bg-gray-800' : (currentItem.type === 'work' ? currentItem.color : 'bg-blue-600');
+            const formatTime = (seconds) => `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`;
+
+            return (
+                <div className={`min-h-screen transition-colors duration-500 ease-in-out ${getBgColor()} text-white font-sans flex flex-col items-center justify-between p-6 overflow-hidden`}>
+                    <div className="w-full flex justify-between items-center z-10">
+                        <h1 className="text-xl font-bold opacity-80">HIIT TIMER</h1>
+                        <div className="flex gap-4">
+                            <button onClick={() => setIsMuted(!isMuted)} className="p-2 rounded-full bg-white/20 hover:bg-white/30 transition">
+                                {isMuted ? <VolumeXIcon /> : <Volume2Icon />}
+                            </button>
+                            <button onClick={() => setShowSettings(!showSettings)} className="p-2 rounded-full bg-white/20 hover:bg-white/30 transition">
+                                <SettingsIcon />
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="flex-1 flex flex-col items-center justify-center w-full max-w-md relative">
+                        {showSettings && (
+                            <div className="absolute inset-0 bg-black/90 rounded-3xl z-50 p-6 overflow-y-auto animate-in">
+                                <div className="flex justify-between items-center mb-6">
+                                    <h2 className="text-2xl font-bold">設定</h2>
+                                    <button onClick={() => setShowSettings(false)} className="text-sm bg-white/20 px-4 py-2 rounded-full">閉じる</button>
+                                </div>
+                                <div className="space-y-6">
+                                    <div>
+                                        <label className="block text-sm text-gray-400 mb-2">総セット数</label>
+                                        <input type="number" value={totalSets} onChange={(e) => setTotalSets(parseInt(e.target.value) || 0)} className="w-full bg-gray-800 rounded-lg p-3 text-white border border-gray-700 outline-none" />
+                                    </div>
+                                    <div className="space-y-4">
+                                        <h3 className="text-lg font-semibold border-b border-gray-700 pb-2">メニュー時間 (秒)</h3>
+                                        {items.map((item) => (
+                                            <div key={item.id} className="flex items-center justify-between">
+                                                <span className="text-sm">{item.name}</span>
+                                                <input type="number" value={item.duration} onChange={(e) => handleDurationChange(item.id, e.target.value)} className="w-24 bg-gray-800 rounded-lg p-2 text-right border border-gray-700 outline-none" />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {isCompleted ? (
+                            <div className="text-center animate-in">
+                                <CheckCircle2Icon />
+                                <h2 className="text-5xl font-bold mb-2">COMPLETE!</h2>
+                                <p className="text-xl opacity-80">総時間: {formatTime(totalTimeElapsed)}</p>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="text-center mb-8 w-full">
+                                    <div className="text-lg font-medium opacity-80 mb-2 uppercase tracking-widest">Current Move</div>
+                                    <h2 className="text-4xl md:text-5xl font-black leading-tight py-2">{currentItem.name}</h2>
+                                </div>
+                                <div className="relative mb-12 min-w-[300px] text-center">
+                                    <div className="text-[10rem] leading-none font-bold tracking-tighter tabular-nums drop-shadow-xl">{timeLeft}</div>
+                                    <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-sm font-bold bg-black/30 px-3 py-1 rounded-full whitespace-nowrap tabular-nums">
+                                        SET {currentSet} {totalSets > 0 ? `/ ${totalSets}` : ''}
+                                    </div>
+                                </div>
+                                <div className="w-full bg-black/20 backdrop-blur-sm rounded-xl p-4 flex items-center justify-between border border-white/10">
+                                    <div className="flex flex-col">
+                                        <span className="text-xs uppercase opacity-60 font-bold">Next Up</span>
+                                        <span className="text-xl font-bold truncate max-w-[200px]">{nextItem.name}</span>
+                                    </div>
+                                    <div className="flex items-center text-2xl font-bold opacity-80">
+                                        {nextItem.duration}s<ChevronRightIcon />
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    <div className="w-full max-w-md pb-8 pt-6 flex justify-center items-center gap-6 z-10">
+                        <button onClick={resetTimer} className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30 transition"><RotateCcwIcon /></button>
+                        <button onClick={toggleTimer} className={`w-24 h-24 rounded-full flex items-center justify-center transition shadow-2xl ${isRunning ? 'bg-amber-400 text-black' : 'bg-white text-black'}`}>
+                            {isRunning ? <PauseIcon /> : <PlayIcon />}
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
