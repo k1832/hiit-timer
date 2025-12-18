@@ -156,6 +156,9 @@
             const getBgColor = () => isCompleted ? 'bg-gray-800' : (currentItem.type === 'work' ? currentItem.color : 'bg-blue-600');
             const formatTime = (seconds) => `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`;
 
+            // 最終セットの最後の種目（休憩）かどうか判定
+            const isLastStepOfLastSet = totalSets > 0 && currentSet >= totalSets && currentStep === items.length - 1;
+
             return (
                 <div className={`fixed inset-0 transition-colors duration-500 ease-in-out ${getBgColor()} text-white font-sans flex flex-col items-center p-4 overflow-hidden`}>
 
@@ -225,15 +228,28 @@
                                 </div>
 
                                 {/* Next Up: Compact Card */}
-                                <div className="w-full bg-black/20 backdrop-blur-sm rounded-xl p-3 flex items-center justify-between border border-white/10 shrink-0 mt-4">
-                                    <div className="flex flex-col overflow-hidden mr-2">
-                                        <span className="text-[10px] uppercase opacity-60 font-bold">Next Up</span>
-                                        <span className="text-lg font-bold truncate">{nextItem.name}</span>
+                                {!isLastStepOfLastSet ? (
+                                    <div className="w-full bg-black/20 backdrop-blur-sm rounded-xl p-3 flex items-center justify-between border border-white/10 shrink-0 mt-4">
+                                        <div className="flex flex-col overflow-hidden mr-2">
+                                            <span className="text-[10px] uppercase opacity-60 font-bold">Next Up</span>
+                                            <span className="text-lg font-bold truncate">{nextItem.name}</span>
+                                        </div>
+                                        <div className="flex items-center text-xl font-bold opacity-80 whitespace-nowrap">
+                                            {nextItem.duration}s<ChevronRightIcon />
+                                        </div>
                                     </div>
-                                    <div className="flex items-center text-xl font-bold opacity-80 whitespace-nowrap">
-                                        {nextItem.duration}s<ChevronRightIcon />
+                                ) : (
+                                    /* Layout Placeholder */
+                                    <div className="w-full bg-transparent rounded-xl p-3 flex items-center justify-between border border-transparent shrink-0 mt-4 invisible">
+                                        <div className="flex flex-col overflow-hidden mr-2">
+                                            <span className="text-[10px] uppercase opacity-60 font-bold">Next Up</span>
+                                            <span className="text-lg font-bold truncate">Placeholder</span>
+                                        </div>
+                                        <div className="flex items-center text-xl font-bold opacity-80 whitespace-nowrap">
+                                            00s
+                                        </div>
                                     </div>
-                                </div>
+                                )}
                             </>
                         )}
                     </div>
