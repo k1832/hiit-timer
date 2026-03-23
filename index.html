@@ -57,15 +57,16 @@
         const { useState, useEffect, useRef, useCallback } = React;
 
         // ========== SETUP SCREEN ==========
-        const Stepper = ({ value, onChange, min = 1, max = 99, suffix = '' }) => (
+        const Stepper = ({ value, onChange, min = 1, max = 99, suffix = '', step = 1 }) => (
             <div className="stepper">
-                <button onClick={() => onChange(Math.max(min, value - 1))}>−</button>
+                <button onClick={() => onChange(Math.max(min, value - step))}>−</button>
                 <div className="stepper-value">{value}{suffix}</div>
-                <button onClick={() => onChange(Math.min(max, value + 1))}>+</button>
+                <button onClick={() => onChange(Math.min(max, value + step))}>+</button>
             </div>
         );
 
         const SetupScreen = ({ onStart }) => {
+            const [warmupSec, setWarmupSec] = useState(120);
             const [sets, setSets] = useState(8);
             const [sprintSec, setSprintSec] = useState(20);
             const [restSec, setRestSec] = useState(35);
@@ -80,6 +81,10 @@
 
                         {/* Settings */}
                         <div className="w-full space-y-5 shrink-0">
+                            <div className="flex items-center justify-between">
+                                <label className="text-base font-medium text-gray-300">ウォームアップ</label>
+                                <Stepper value={warmupSec} onChange={setWarmupSec} min={0} max={600} suffix="s" step={10} />
+                            </div>
                             <div className="flex items-center justify-between">
                                 <label className="text-base font-medium text-gray-300">セット数</label>
                                 <Stepper value={sets} onChange={setSets} min={1} max={50} />
@@ -96,12 +101,12 @@
 
                         {/* Total time */}
                         <div className="text-center text-sm text-gray-500 shrink-0">
-                            合計: {Math.floor((sprintSec + restSec) * sets / 60)}分{((sprintSec + restSec) * sets) % 60}秒
+                            合計: {Math.floor((warmupSec + (sprintSec + restSec) * sets) / 60)}分{(warmupSec + (sprintSec + restSec) * sets) % 60}秒
                         </div>
 
                         {/* Start button */}
                         <button
-                            onClick={() => onStart({ sets, sprintSec, restSec })}
+                            onClick={() => onStart({ sets, sprintSec, restSec, warmupSec })}
                             className="w-full py-5 rounded-2xl bg-emerald-500 text-white text-xl font-bold
                                        active:scale-[0.97] transition-transform shrink-0"
                         >
@@ -114,9 +119,9 @@
 
         // ========== TIMER SCREEN ==========
         const TimerScreen = ({ config, onBack }) => {
-            const { sets, sprintSec, restSec } = config;
+            const { sets, sprintSec, restSec, warmupSec } = config;
 
-            // phase: 'ready' | 'sprint' | 'rest' | 'done'
+            // phase: 'ready' | 'warmup' | 'sprint' | 'rest' | 'done'
             const [phase, setPhase] = useState('ready');
             const [currentSet, setCurrentSet] = useState(1);
             const [timeLeft, setTimeLeft] = useState(3); // 3-sec countdown to start
@@ -126,7 +131,7 @@
             const timerRef = useRef(null);
             const popRef = useRef(null);
 
-            const phaseDuration = phase === 'ready' ? 3 : phase === 'sprint' ? sprintSec : restSec;
+            const phaseDuration = phase === 'ready' ? 3 : phase === 'warmup' ? warmupSec : phase === 'sprint' ? sprintSec : restSec;
             const progress = phaseDuration > 0 ? (phaseDuration - timeLeft) / phaseDuration : 1;
 
             // Ring geometry
@@ -140,6 +145,14 @@
             const nextPhase = useCallback(() => {
                 setFlashKey(k => k + 1);
                 if (phase === 'ready') {
+                    if (warmupSec > 0) {
+                        setPhase('warmup');
+                        setTimeLeft(warmupSec);
+                    } else {
+                        setPhase('sprint');
+                        setTimeLeft(sprintSec);
+                    }
+                } else if (phase === 'warmup') {
                     setPhase('sprint');
                     setTimeLeft(sprintSec);
                 } else if (phase === 'sprint') {
@@ -155,7 +168,7 @@
                         setIsRunning(false);
                     }
                 }
-            }, [phase, currentSet, sets, sprintSec, restSec]);
+            }, [phase, currentSet, sets, sprintSec, restSec, warmupSec]);
 
             // Timer tick
             useEffect(() => {
@@ -171,9 +184,7 @@
                         }
                         return prev - 1;
                     });
-                    if (phase !== 'ready') {
-                        setTotalElapsed(t => t + 1);
-                    }
+                    if (phase !== 'ready') setTotalElapsed(t => t + 1);
                 }, 1000);
                 return () => clearInterval(timerRef.current);
             }, [isRunning, phase, nextPhase]);
@@ -194,6 +205,7 @@
 
             const phaseColors = {
                 ready: { bg: 'from-gray-900 to-gray-800', ring: '#6b7280', text: 'READY' },
+                warmup: { bg: 'from-yellow-900/80 to-amber-900/60', ring: '#f59e0b', text: 'WARM UP' },
                 sprint: { bg: 'from-red-900/80 to-orange-900/60', ring: '#ef4444', text: 'SPRINT' },
                 rest: { bg: 'from-blue-900/80 to-cyan-900/60', ring: '#3b82f6', text: 'REST' },
                 done: { bg: 'from-gray-900 to-gray-800', ring: '#10b981', text: '' },
@@ -250,16 +262,20 @@
                         {/* Top / Left: phase label + set info */}
                         <div className="flex flex-col items-center gap-1 shrink-0 fade-in">
                             <span className="text-sm font-bold tracking-[0.3em] uppercase opacity-60">{c.text}</span>
-                            <div className="flex items-center gap-2">
-                                {Array.from({ length: sets }, (_, i) => (
-                                    <div key={i} className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${
-                                        i < currentSet - 1 ? 'bg-white/80 scale-75' :
-                                        i === currentSet - 1 ? 'bg-white scale-110' :
-                                        'bg-white/20'
-                                    }`} />
-                                ))}
-                            </div>
-                            <span className="text-xs text-white/40 mt-0.5">{currentSet} / {sets}</span>
+                            {phase !== 'ready' && phase !== 'warmup' && (
+                                <>
+                                    <div className="flex items-center gap-2">
+                                        {Array.from({ length: sets }, (_, i) => (
+                                            <div key={i} className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${
+                                                i < currentSet - 1 ? 'bg-white/80 scale-75' :
+                                                i === currentSet - 1 ? 'bg-white scale-110' :
+                                                'bg-white/20'
+                                            }`} />
+                                        ))}
+                                    </div>
+                                    <span className="text-xs text-white/40 mt-0.5">{currentSet} / {sets}</span>
+                                </>
+                            )}
                         </div>
 
                         {/* Center: circular timer */}
@@ -274,8 +290,8 @@
                             </svg>
                             <div className="absolute inset-0 flex flex-col items-center justify-center">
                                 <div ref={popRef} className="font-black tabular-nums leading-none"
-                                     style={{fontSize: 'min(20vw, 18vh)'}}>
-                                    {timeLeft}
+                                     style={{fontSize: phase === 'warmup' ? 'min(16vw, 14vh)' : 'min(20vw, 18vh)'}}>
+                                    {phase === 'warmup' ? formatTime(timeLeft) : timeLeft}
                                 </div>
                                 {!isRunning && phase !== 'done' && (
                                     <div className="text-sm font-bold tracking-widest opacity-60 mt-2">PAUSED</div>
@@ -286,7 +302,12 @@
                         {/* Bottom / Right: next up + controls */}
                         <div className="flex flex-col items-center gap-3 shrink-0">
                             {/* Next up label */}
-                            {phase === 'sprint' ? (
+                            {phase === 'warmup' ? (
+                                <div className="text-center opacity-50 text-sm">
+                                    <span className="uppercase tracking-wider text-xs font-bold">Next</span>
+                                    <div className="font-bold">SPRINT {sprintSec}s</div>
+                                </div>
+                            ) : phase === 'sprint' ? (
                                 <div className="text-center opacity-50 text-sm">
                                     <span className="uppercase tracking-wider text-xs font-bold">Next</span>
                                     <div className="font-bold">REST {restSec}s</div>
@@ -300,6 +321,18 @@
                                 ) : (
                                     <div className="text-center opacity-50 text-sm">
                                         <span className="uppercase tracking-wider text-xs font-bold">Last set!</span>
+                                    </div>
+                                )
+                            ) : phase === 'ready' ? (
+                                warmupSec > 0 ? (
+                                    <div className="text-center opacity-50 text-sm">
+                                        <span className="uppercase tracking-wider text-xs font-bold">Next</span>
+                                        <div className="font-bold">WARM UP {formatTime(warmupSec)}</div>
+                                    </div>
+                                ) : (
+                                    <div className="text-center opacity-50 text-sm">
+                                        <span className="uppercase tracking-wider text-xs font-bold">Next</span>
+                                        <div className="font-bold">SPRINT {sprintSec}s</div>
                                     </div>
                                 )
                             ) : (
