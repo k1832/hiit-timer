@@ -1,390 +1,1011 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>HIIT Timer</title>
+    <meta name="description" content="Sprint interval timer with a fixed 12-week progression.">
+    <meta name="theme-color" content="#0a0a0a">
+    <title>Sprint Interval Timer</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-        html, body { position: fixed; width: 100%; height: 100%; overflow: hidden; overscroll-behavior: none; }
-        body { background: #0a0a0a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+        html, body { width: 100%; min-height: 100%; overscroll-behavior-y: none; }
+        body { background: #0a0a0a; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        body.timer-active { position: fixed; overflow: hidden; }
 
         @keyframes fade-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes pulse-ring { 0% { transform: scale(1); opacity: 0.4; } 100% { transform: scale(1.3); opacity: 0; } }
-        @keyframes flash-bg { 0% { opacity: 0.5; } 100% { opacity: 0; } }
-        @keyframes count-pop { 0% { transform: scale(1.15); } 100% { transform: scale(1); } }
         @keyframes slide-up { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes count-pop { 0% { transform: scale(1.12); } 100% { transform: scale(1); } }
         @keyframes check-draw { from { stroke-dashoffset: 48; } to { stroke-dashoffset: 0; } }
         @keyframes circle-draw { from { stroke-dashoffset: 220; } to { stroke-dashoffset: 0; } }
+        @keyframes flash-bg { 0% { opacity: 0.45; } 100% { opacity: 0; } }
 
         .fade-in { animation: fade-in 0.4s ease-out both; }
         .slide-up { animation: slide-up 0.5s ease-out both; }
         .count-pop { animation: count-pop 0.2s ease-out; }
 
-        /* Circular progress */
         .progress-ring { transform: rotate(-90deg); }
         .progress-ring__bg { stroke: rgba(255,255,255,0.08); }
-        .progress-ring__fill { transition: stroke-dashoffset 0.3s linear; stroke-linecap: round; }
+        .progress-ring__fill { transition: stroke-dashoffset 0.2s linear; stroke-linecap: round; }
 
-        /* Number input stepper style */
-        .stepper { display: flex; align-items: center; gap: 0; }
+        .stepper { display: flex; align-items: center; }
         .stepper button {
-            width: 56px; height: 56px; border: none; font-size: 28px; font-weight: 600;
+            width: 48px; height: 48px; border: none; font-size: 24px; font-weight: 600;
             display: flex; align-items: center; justify-content: center;
-            color: white; cursor: pointer; transition: background 0.15s;
+            color: white; background: rgba(255,255,255,0.1); cursor: pointer; transition: background 0.15s;
             -webkit-user-select: none; user-select: none;
         }
-        .stepper button:first-child { background: rgba(255,255,255,0.1); border-radius: 16px 0 0 16px; }
-        .stepper button:last-child { background: rgba(255,255,255,0.1); border-radius: 0 16px 16px 0; }
+        .stepper button:first-child { border-radius: 14px 0 0 14px; }
+        .stepper button:last-child { border-radius: 0 14px 14px 0; }
         .stepper button:active { background: rgba(255,255,255,0.25); }
         .stepper .stepper-value {
-            width: 72px; height: 56px; background: rgba(255,255,255,0.05);
+            min-width: 88px; height: 48px; background: rgba(255,255,255,0.05);
             display: flex; align-items: center; justify-content: center;
-            font-size: 24px; font-weight: 700; color: white;
+            font-size: 18px; font-weight: 700; color: white; padding: 0 8px;
             border-top: 1px solid rgba(255,255,255,0.08);
             border-bottom: 1px solid rgba(255,255,255,0.08);
         }
+
+        input[type=number], input[type=text], textarea {
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 12px; color: white; padding: 10px 12px; font-size: 16px; width: 100%;
+        }
+        input:focus, textarea:focus { outline: none; border-color: rgba(255,255,255,0.35); }
+
+        input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 34px; background: transparent; }
+        input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.15); }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none; width: 28px; height: 28px; border-radius: 50%;
+            background: #fff; margin-top: -11px;
+        }
+        input[type=range]::-moz-range-track { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.15); }
+        input[type=range]::-moz-range-thumb { width: 28px; height: 28px; border: none; border-radius: 50%; background: #fff; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef, useCallback } = React;
+/* eslint-disable */
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
-        // ========== SETUP SCREEN ==========
-        const Stepper = ({ value, onChange, min = 1, max = 99, suffix = '', step = 1 }) => (
-            <div className="stepper">
-                <button onClick={() => onChange(Math.max(min, value - step))}>−</button>
-                <div className="stepper-value">{value}{suffix}</div>
-                <button onClick={() => onChange(Math.min(max, value + step))}>+</button>
+/* =========================================================================
+   PROGRAM
+   12-week progression. totalSec = 180 + reps * 140 + continuousSec + 180
+   Only one variable changes at a time: reps or continuous duration, never both.
+   ========================================================================= */
+const PROGRAM = {
+    id: 'sprint-hiit-12week',
+    sessionsPerWeek: 3,
+    phaseDefaults: {
+        warmup:     { durationSec: 180, hrPct: [0.60, 0.70] },
+        sprint:     { durationSec: 20 },
+        recovery:    { durationSec: 120 },
+        continuous: { hrPct: [0.75, 0.85] },
+        cooldown:   { durationSec: 180 },
+    },
+    weeks: [
+        { week: 1,  sprintReps: 3, continuousSec: 480 },
+        { week: 2,  sprintReps: 3, continuousSec: 480 },
+        { week: 3,  sprintReps: 4, continuousSec: 480 },
+        { week: 4,  sprintReps: 4, continuousSec: 480 },
+        { week: 5,  sprintReps: 4, continuousSec: 600 },
+        { week: 6,  sprintReps: 4, continuousSec: 600 },
+        { week: 7,  sprintReps: 5, continuousSec: 600 },
+        { week: 8,  sprintReps: 5, continuousSec: 600 },
+        { week: 9,  sprintReps: 5, continuousSec: 720 },
+        { week: 10, sprintReps: 5, continuousSec: 720 },
+        { week: 11, sprintReps: 6, continuousSec: 720 },
+        { week: 12, sprintReps: 6, continuousSec: 720 },
+    ],
+};
+
+const clampWeek = (w) => Math.min(12, Math.max(1, w | 0));
+const weekPlan = (w) => PROGRAM.weeks[clampWeek(w) - 1];
+const planTotalSec = (p) =>
+    PROGRAM.phaseDefaults.warmup.durationSec +
+    p.sprintReps * (PROGRAM.phaseDefaults.sprint.durationSec + PROGRAM.phaseDefaults.recovery.durationSec) +
+    p.continuousSec +
+    PROGRAM.phaseDefaults.cooldown.durationSec;
+
+const buildPhases = (plan) => {
+    const d = PROGRAM.phaseDefaults;
+    const phases = [{ type: 'ready', sec: 3 }, { type: 'warmup', sec: d.warmup.durationSec }];
+    for (let i = 1; i <= plan.sprintReps; i++) {
+        phases.push({ type: 'sprint', sec: d.sprint.durationSec, rep: i });
+        phases.push({ type: 'recovery', sec: d.recovery.durationSec, rep: i });
+    }
+    phases.push({ type: 'continuous', sec: plan.continuousSec });
+    phases.push({ type: 'cooldown', sec: d.cooldown.durationSec });
+    return phases;
+};
+
+/* One short prompt per recovery block. Deliberately plain — the block is a walk,
+   not a task, and a busy screen makes it feel longer than it is. */
+const RECOVERY_PROMPTS = [
+    'Notice how your body feels right now.',
+    'Heart rate high, legs heavy — just notice it.',
+    'Where do you feel the effort most?',
+    'Let the recovery happen on its own.',
+    'Stay with it. The block ends when it ends.',
+    'Nothing to fix. Just walk it out.',
+];
+
+/* =========================================================================
+   TARGET HEART-RATE ZONES
+   Reference numbers only — this app reads no sensors. You check them on
+   whatever watch or strap you already use.
+   ========================================================================= */
+const tanakaHrMax = (age) => Math.round(208 - 0.7 * age);
+const effectiveHrMax = (s) => (s.hrMaxOverride ? s.hrMaxOverride : tanakaHrMax(s.age));
+const usesKarvonen = (s) => s.method === 'karvonen' && !!s.restingHr;
+const zoneBpm = (s, pct) => {
+    const max = effectiveHrMax(s);
+    if (usesKarvonen(s)) {
+        const reserve = max - s.restingHr;
+        return pct.map((p) => Math.round(reserve * p + s.restingHr));
+    }
+    return pct.map((p) => Math.round(max * p));
+};
+const methodLabel = (s) => (usesKarvonen(s) ? 'Karvonen (HR reserve)' : '%HRmax');
+
+/* =========================================================================
+   STORAGE — session history only, kept in this browser
+   ========================================================================= */
+const STORAGE_KEY = 'sprint-hiit-12week/v1';
+const DEFAULT_STATE = {
+    consented: false,
+    settings: { age: 30, hrMaxOverride: null, restingHr: null, method: 'pct', sound: true, speech: true },
+    week: 1,
+    sessions: [],
+};
+
+const loadState = () => {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return DEFAULT_STATE;
+        const parsed = JSON.parse(raw);
+        return { ...DEFAULT_STATE, ...parsed, settings: { ...DEFAULT_STATE.settings, ...(parsed.settings || {}) } };
+    } catch (e) {
+        return DEFAULT_STATE;
+    }
+};
+const saveState = (s) => {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch (e) { /* private mode: keep going */ }
+};
+
+/* =========================================================================
+   UTILITIES
+   ========================================================================= */
+const fmtClock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const fmtDuration = (s) => {
+    const m = Math.floor(s / 60), r = s % 60;
+    return r === 0 ? `${m} min` : `${m} min ${r} s`;
+};
+const todayISO = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const shortDate = (iso) => iso.slice(5).replace('-', '/');
+
+/* =========================================================================
+   AUDIO CUES
+   ========================================================================= */
+const Cues = (() => {
+    let ctx = null;
+    let enabled = true;
+    const ensure = () => {
+        if (!ctx) {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) return null;
+            ctx = new AC();
+        }
+        if (ctx.state === 'suspended') ctx.resume();
+        return ctx;
+    };
+    const tone = (freq, dur, vol, delay = 0) => {
+        if (!enabled) return;
+        const c = ensure();
+        if (!c) return;
+        const t0 = c.currentTime + delay;
+        const osc = c.createOscillator();
+        const gain = c.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, t0);
+        gain.gain.setValueAtTime(0.0001, t0);
+        gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        osc.connect(gain);
+        gain.connect(c.destination);
+        osc.start(t0);
+        osc.stop(t0 + dur + 0.05);
+    };
+    return {
+        unlock: ensure,
+        setEnabled: (v) => { enabled = v; },
+        tick: () => tone(880, 0.12, 0.25),
+        go: () => tone(1320, 0.45, 0.32),
+        phase: () => { tone(660, 0.18, 0.22); tone(990, 0.3, 0.22, 0.17); },
+        soft: () => tone(494, 0.35, 0.12),
+        finish: () => { tone(660, 0.2, 0.25); tone(880, 0.2, 0.25, 0.2); tone(1175, 0.5, 0.25, 0.4); },
+    };
+})();
+
+const speak = (text) => {
+    if (!('speechSynthesis' in window)) return;
+    try {
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = 'en-US';
+        u.rate = 1.05;
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(u);
+    } catch (e) { /* the timer works without speech */ }
+};
+
+/* =========================================================================
+   SHARED UI
+   ========================================================================= */
+const Stepper = ({ value, onChange, min = 0, max = 99, step = 1, format = (v) => v }) => (
+    <div className="stepper">
+        <button onClick={() => onChange(Math.max(min, value - step))} aria-label="Decrease">−</button>
+        <div className="stepper-value">{format(value)}</div>
+        <button onClick={() => onChange(Math.min(max, value + step))} aria-label="Increase">+</button>
+    </div>
+);
+
+const Screen = ({ title, onBack, children, footer }) => (
+    <div className="min-h-screen bg-[#0a0a0a] text-white">
+        <header className="sticky top-0 z-10 bg-[#0a0a0a]/95 backdrop-blur border-b border-white/10">
+            <div className="max-w-md mx-auto flex items-center gap-3 px-4 h-14">
+                {onBack && <button onClick={onBack} className="text-white/60 text-sm -ml-1 px-1 py-2">← Back</button>}
+                <h1 className="font-bold text-base">{title}</h1>
             </div>
+        </header>
+        <main className="max-w-md mx-auto px-4 py-5 pb-28 space-y-5 fade-in">{children}</main>
+        {footer}
+    </div>
+);
+
+const Card = ({ children, className = '' }) => (
+    <section className={`bg-white/[0.04] border border-white/10 rounded-2xl p-4 ${className}`}>{children}</section>
+);
+
+const Field = ({ label, hint, children }) => (
+    <div className="space-y-1.5">
+        <label className="text-sm text-gray-300 font-medium block">{label}</label>
+        {children}
+        {hint && <p className="text-xs text-gray-500 leading-relaxed">{hint}</p>}
+    </div>
+);
+
+const PrimaryButton = ({ children, className = '', ...rest }) => (
+    <button {...rest} className={`w-full py-4 rounded-2xl bg-emerald-500 text-white text-lg font-bold active:scale-[0.97] transition-transform ${className}`}>
+        {children}
+    </button>
+);
+
+/* =========================================================================
+   CONSENT
+   ========================================================================= */
+const ConsentScreen = ({ onAccept }) => (
+    <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center px-5 py-10">
+        <div className="max-w-md w-full space-y-5 fade-in">
+            <h1 className="text-2xl font-black">Before you start</h1>
+            <Card className="space-y-3 text-sm text-gray-300 leading-relaxed">
+                <p>This program includes <strong className="text-white">all-out sprints</strong>. If you have any cardiovascular history or risk factors, get clearance from your doctor first.</p>
+                <p>Build up to it. If you have not been running regularly, spend a few weeks on easy continuous running before starting Week 1.</p>
+            </Card>
+            <PrimaryButton onClick={onAccept}>I understand</PrimaryButton>
+            <p className="text-xs text-gray-600 text-center">Nothing leaves this device. History is stored in this browser only.</p>
+        </div>
+    </div>
+);
+
+/* =========================================================================
+   HOME
+   ========================================================================= */
+const HomeScreen = ({ state, setState, onStart, go }) => {
+    const { settings, week, sessions } = state;
+    const plan = weekPlan(week);
+    const warmZone = zoneBpm(settings, PROGRAM.phaseDefaults.warmup.hrPct);
+    const contZone = zoneBpm(settings, PROGRAM.phaseDefaults.continuous.hrPct);
+    const suggested = clampWeek(Math.floor(sessions.length / PROGRAM.sessionsPerWeek) + 1);
+    const thisWeekCount = sessions.filter((s) => s.week === week).length;
+
+    return (
+        <Screen
+            title="Sprint Intervals"
+            footer={
+                <div className="fixed bottom-0 inset-x-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a] to-transparent pt-6 pb-5 px-4">
+                    <div className="max-w-md mx-auto">
+                        <PrimaryButton onClick={() => onStart(plan)}>START — {fmtDuration(planTotalSec(plan))}</PrimaryButton>
+                    </div>
+                </div>
+            }
+        >
+            <Card className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <p className="text-sm text-gray-300 font-medium">Current week</p>
+                        <p className="text-xs text-gray-500">{PROGRAM.sessionsPerWeek}× per week, at least one rest day between</p>
+                    </div>
+                    <Stepper value={week} onChange={(w) => setState({ ...state, week: clampWeek(w) })} min={1} max={12} format={(v) => `Week ${v}`} />
+                </div>
+                {suggested !== week && (
+                    <button onClick={() => setState({ ...state, week: suggested })} className="text-xs text-emerald-400 underline underline-offset-2">
+                        {sessions.length} sessions logged → suggested Week {suggested}. Switch.
+                    </button>
+                )}
+                <div className="flex items-center gap-1.5">
+                    {Array.from({ length: PROGRAM.sessionsPerWeek }, (_, i) => (
+                        <div key={i} className={`h-1.5 flex-1 rounded-full ${i < thisWeekCount ? 'bg-emerald-500' : 'bg-white/15'}`} />
+                    ))}
+                    <span className="text-xs text-gray-500 ml-2">{thisWeekCount}/{PROGRAM.sessionsPerWeek}</span>
+                </div>
+            </Card>
+
+            <Card className="space-y-2.5">
+                <p className="text-xs uppercase tracking-widest text-gray-500 font-bold">Session</p>
+                <SessionRow color="#f59e0b" name="Warm-up" detail="3:00 — brisk walk to easy jog" note={`${warmZone[0]}–${warmZone[1]}`} />
+                <SessionRow color="#ef4444" name={`Sprint × ${plan.sprintReps}`} detail="20 s all-out" note="RPE 9–10" />
+                <SessionRow color="#818cf8" name={`Recovery × ${plan.sprintReps}`} detail="2:00 walk" note="—" />
+                <SessionRow color="#10b981" name="Continuous run" detail={`${fmtClock(plan.continuousSec)} at target HR`} note={`${contZone[0]}–${contZone[1]}`} />
+                <SessionRow color="#64748b" name="Cool-down" detail="3:00 walk — fixed" note="—" />
+                <p className="text-[11px] text-gray-500 pt-1 border-t border-white/10">
+                    Zones in bpm · {methodLabel(settings)} · HRmax {effectiveHrMax(settings)}. Read them on your own watch — this app has no sensor access.
+                </p>
+            </Card>
+
+            <div className="grid grid-cols-3 gap-2">
+                <NavTile label="History" onClick={() => go('history')} />
+                <NavTile label="Settings" onClick={() => go('settings')} />
+                <NavTile label="About" onClick={() => go('about')} />
+            </div>
+        </Screen>
+    );
+};
+
+const SessionRow = ({ color, name, detail, note }) => (
+    <div className="flex items-center gap-3">
+        <span className="w-1.5 h-8 rounded-full shrink-0" style={{ background: color }} />
+        <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium truncate">{name}</p>
+            <p className="text-xs text-gray-500 truncate">{detail}</p>
+        </div>
+        <span className="text-xs text-gray-400 shrink-0 tabular-nums">{note}</span>
+    </div>
+);
+
+const NavTile = ({ label, onClick }) => (
+    <button onClick={onClick} className="bg-white/[0.06] border border-white/10 rounded-2xl py-4 text-sm font-medium active:bg-white/[0.12] transition-colors">
+        {label}
+    </button>
+);
+
+/* =========================================================================
+   TIMER
+   ========================================================================= */
+const PHASE_STYLE = {
+    ready:      { label: 'READY',      bg: 'from-gray-900 to-gray-800',          ring: '#9ca3af', speech: null },
+    warmup:     { label: 'WARM UP',    bg: 'from-amber-900/70 to-yellow-900/40', ring: '#f59e0b', speech: 'Warm up' },
+    sprint:     { label: 'SPRINT',     bg: 'from-red-900/80 to-orange-900/50',   ring: '#ef4444', speech: 'Go' },
+    recovery:    { label: 'RECOVER',    bg: 'from-slate-900 to-indigo-950',       ring: '#818cf8', speech: 'Recover' },
+    continuous: { label: 'CONTINUOUS', bg: 'from-emerald-900/70 to-teal-900/40', ring: '#10b981', speech: 'Continuous run' },
+    cooldown:   { label: 'COOL DOWN',  bg: 'from-slate-900 to-slate-800',        ring: '#64748b', speech: 'Cool down' },
+};
+
+const TimerScreen = ({ plan, settings, onFinish, onAbort }) => {
+    const phases = useMemo(() => buildPhases(plan), [plan]);
+    const [idx, setIdx] = useState(0);
+    const [remaining, setRemaining] = useState(phases[0].sec);
+    const [paused, setPaused] = useState(false);
+    const [elapsed, setElapsed] = useState(0);
+
+    const endAtRef = useRef(Date.now() + phases[0].sec * 1000);
+    const pausedLeftRef = useRef(null);
+    const lastCueRef = useRef(null);
+    const startedAtRef = useRef(Date.now());
+    const pausedTotalRef = useRef(0);
+    const pauseStartRef = useRef(null);
+    const wakeLockRef = useRef(null);
+    const advancedFromRef = useRef(-1);
+
+    const phase = phases[idx];
+    const style = PHASE_STYLE[phase.type];
+    const warmZone = zoneBpm(settings, PROGRAM.phaseDefaults.warmup.hrPct);
+    const contZone = zoneBpm(settings, PROGRAM.phaseDefaults.continuous.hrPct);
+
+    /* Keep the screen awake for the length of the session. */
+    useEffect(() => {
+        let released = false;
+        const acquire = async () => {
+            try {
+                if ('wakeLock' in navigator) wakeLockRef.current = await navigator.wakeLock.request('screen');
+            } catch (e) { /* unsupported: carry on */ }
+        };
+        acquire();
+        const onVisible = () => { if (document.visibilityState === 'visible' && !released) acquire(); };
+        document.addEventListener('visibilitychange', onVisible);
+        document.body.classList.add('timer-active');
+        return () => {
+            released = true;
+            document.removeEventListener('visibilitychange', onVisible);
+            document.body.classList.remove('timer-active');
+            if (wakeLockRef.current) { try { wakeLockRef.current.release(); } catch (e) {} }
+        };
+    }, []);
+
+    const startPhase = useCallback((nextIdx) => {
+        endAtRef.current = Date.now() + phases[nextIdx].sec * 1000;
+        lastCueRef.current = null;
+        setIdx(nextIdx);
+        setRemaining(phases[nextIdx].sec);
+    }, [phases]);
+
+    const advance = useCallback(() => {
+        /* The tick can fire again before React flushes the new index; only leave each phase once. */
+        if (advancedFromRef.current === idx) return;
+        advancedFromRef.current = idx;
+        const next = idx + 1;
+        if (next >= phases.length) {
+            Cues.finish();
+            if (settings.speech) speak('Session complete');
+            const dur = Math.round((Date.now() - startedAtRef.current - pausedTotalRef.current) / 1000) - phases[0].sec;
+            onFinish({ durationSec: Math.max(0, dur) });
+            return;
+        }
+        const p = phases[next];
+        if (p.type === 'sprint') Cues.go(); else Cues.phase();
+        if (settings.speech && PHASE_STYLE[p.type].speech) speak(PHASE_STYLE[p.type].speech);
+        startPhase(next);
+    }, [idx, phases, onFinish, settings.speech, startPhase]);
+
+    /* Clock-based ticking, so the countdown does not drift or stall in the background. */
+    useEffect(() => {
+        if (paused) return;
+        const tick = () => {
+            const msLeft = endAtRef.current - Date.now();
+            const secLeft = Math.max(0, Math.ceil(msLeft / 1000));
+            setRemaining((prev) => (prev === secLeft ? prev : secLeft));
+            setElapsed(Math.max(0, Math.round((Date.now() - startedAtRef.current - pausedTotalRef.current) / 1000) - phases[0].sec));
+
+            if (secLeft !== lastCueRef.current) {
+                lastCueRef.current = secLeft;
+                if (phase.type === 'sprint' && secLeft > 0 && secLeft <= 5) Cues.tick();
+                if (phase.type === 'ready' && secLeft > 0 && secLeft <= 3) Cues.tick();
+                if (phase.type === 'recovery' && secLeft === 30) Cues.soft();
+            }
+            if (msLeft <= 0) advance();
+        };
+        const id = setInterval(tick, 120);
+        tick();
+        return () => clearInterval(id);
+    }, [paused, phase, advance, phases]);
+
+    const togglePause = () => {
+        setPaused((p) => {
+            if (p) {
+                endAtRef.current = Date.now() + (pausedLeftRef.current || 0);
+                if (pauseStartRef.current) pausedTotalRef.current += Date.now() - pauseStartRef.current;
+                pauseStartRef.current = null;
+                Cues.unlock();
+            } else {
+                pausedLeftRef.current = Math.max(0, endAtRef.current - Date.now());
+                pauseStartRef.current = Date.now();
+            }
+            return !p;
+        });
+    };
+
+    const progress = phase.sec > 0 ? (phase.sec - remaining) / phase.sec : 1;
+    const radius = 120;
+    const circumference = 2 * Math.PI * radius;
+    const remainingTotal = useMemo(() => {
+        let t = remaining;
+        for (let i = idx + 1; i < phases.length; i++) t += phases[i].sec;
+        return t;
+    }, [idx, phases, remaining]);
+
+    const countsInSeconds = phase.type === 'ready' || phase.type === 'sprint';
+    const isRecovery = phase.type === 'recovery';
+
+    return (
+        <div className={`fixed inset-0 bg-gradient-to-b ${style.bg} text-white transition-colors duration-700`}>
+            {/* No white flash into the recovery walk — a strobe there is just jarring. */}
+            {!isRecovery && (
+                <div key={idx} className="fixed inset-0 bg-white pointer-events-none" style={{ animation: 'flash-bg 0.4s ease-out forwards' }} />
+            )}
+
+            <div className="w-full h-full flex flex-col landscape:flex-row items-center justify-evenly p-4 gap-2">
+                <div className="flex flex-col items-center gap-1.5 shrink-0">
+                    <span className="text-sm font-bold tracking-[0.3em] uppercase opacity-70">{style.label}</span>
+                    {(phase.type === 'sprint' || phase.type === 'recovery') && (
+                        <>
+                            <div className="flex items-center gap-2">
+                                {Array.from({ length: plan.sprintReps }, (_, i) => (
+                                    <div key={i} className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${
+                                        i < phase.rep - 1 ? 'bg-white/80 scale-75'
+                                        : i === phase.rep - 1 ? 'bg-white scale-110'
+                                        : 'bg-white/20'}`} />
+                                ))}
+                            </div>
+                            <span className="text-xs text-white/40">{phase.rep} / {plan.sprintReps}</span>
+                        </>
+                    )}
+                    {phase.type === 'warmup' && (
+                        <span className="text-xs text-white/50">{warmZone[0]}–{warmZone[1]} bpm · {methodLabel(settings)}</span>
+                    )}
+                    {phase.type === 'continuous' && (
+                        <span className="text-sm font-bold text-emerald-300">Hold {contZone[0]}–{contZone[1]} bpm</span>
+                    )}
+                </div>
+
+                <div className="relative flex items-center justify-center shrink-0" onClick={togglePause}>
+                    <svg className="progress-ring" viewBox="0 0 260 260" style={{ width: 'min(62vw, 52vh)', height: 'min(62vw, 52vh)' }}>
+                        <circle className="progress-ring__bg" cx="130" cy="130" r={radius} fill="none" strokeWidth="8" />
+                        <circle className="progress-ring__fill" cx="130" cy="130" r={radius} fill="none" strokeWidth="8"
+                            stroke={style.ring} strokeDasharray={circumference} strokeDashoffset={circumference * (1 - progress)} />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center px-6">
+                        <div key={remaining} className="font-black tabular-nums leading-none count-pop"
+                            style={{ fontSize: countsInSeconds ? 'min(22vw, 18vh)' : 'min(15vw, 13vh)' }}>
+                            {countsInSeconds ? remaining : fmtClock(remaining)}
+                        </div>
+                        {paused && <div className="text-sm font-bold tracking-widest opacity-60 mt-2">PAUSED</div>}
+                    </div>
+                </div>
+
+                <div className="flex flex-col items-center gap-3 shrink-0 max-w-xs w-full">
+                    <div className="h-12 flex items-center justify-center text-center px-2">
+                        <PhaseMessage phase={phase} />
+                    </div>
+
+                    <button onClick={togglePause}
+                        className={`w-14 h-14 rounded-full flex items-center justify-center transition-all active:scale-90 ${paused ? 'bg-white/25' : 'bg-white/10'}`}
+                        aria-label={paused ? 'Resume' : 'Pause'}>
+                        {paused ? (
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><polygon points="8 4 20 12 8 20" /></svg>
+                        ) : (
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
+                                <rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" />
+                            </svg>
+                        )}
+                    </button>
+
+                    <div className="flex items-center gap-5 text-[11px] text-white/25 tabular-nums">
+                        <span>Elapsed {fmtClock(elapsed)}</span>
+                        <span>Left {fmtClock(remainingTotal)}</span>
+                    </div>
+                    {/* Reachable, but quiet — easy to hit by accident is worse than slightly hidden. */}
+                    <div className="flex items-center gap-5 text-[11px] text-white/25">
+                        <button onClick={advance} className="underline underline-offset-2">Skip</button>
+                        <button onClick={onAbort} className="underline underline-offset-2">Stop</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const PhaseMessage = ({ phase }) => {
+    switch (phase.type) {
+        case 'ready':
+            return <p className="text-sm text-white/60">Starting</p>;
+        case 'warmup':
+            return <p className="text-sm text-white/60">Brisk walk into an easy jog</p>;
+        case 'sprint':
+            return <p className="text-xl font-black tracking-wider">ALL OUT — RPE 9–10</p>;
+        case 'recovery':
+            /* One plain prompt, no heart rate. Keep the screen quiet during the walk. */
+            return <p className="text-base text-indigo-200/90 leading-relaxed">{RECOVERY_PROMPTS[(phase.rep - 1) % RECOVERY_PROMPTS.length]}</p>;
+        case 'continuous':
+            return <p className="text-sm text-white/60">Keep the pace steady</p>;
+        case 'cooldown':
+            return <p className="text-sm text-white/60">Walk. Ends in 3 minutes.</p>;
+        default:
+            return null;
+    }
+};
+
+/* =========================================================================
+   POST-SESSION LOG — two ratings, nothing a sensor would give you
+   ========================================================================= */
+const LogScreen = ({ state, plan, result, onSave, onDiscard }) => {
+    const [rpe, setRpe] = useState(8);
+    const [discomfort, setDiscomfort] = useState(50);
+    const [note, setNote] = useState('');
+
+    return (
+        <Screen title="Session log">
+            <div className="text-center space-y-3 py-2 slide-up">
+                <svg width="72" height="72" viewBox="0 0 100 100" className="mx-auto">
+                    <circle cx="50" cy="50" r="38" fill="none" stroke="#10b981" strokeWidth="4" strokeDasharray="220"
+                        style={{ animation: 'circle-draw 0.6s ease-out forwards' }} />
+                    <path d="M30 52 L44 66 L70 36" fill="none" stroke="#10b981" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round"
+                        strokeDasharray="48" style={{ animation: 'check-draw 0.4s ease-out 0.4s forwards', strokeDashoffset: 48 }} />
+                </svg>
+                <p className="text-lg font-bold">Week {state.week} done</p>
+                <p className="text-sm text-gray-400">
+                    {plan.sprintReps} sprints · {fmtClock(plan.continuousSec)} continuous · {fmtClock(result.durationSec)} total
+                </p>
+            </div>
+
+            <Card className="space-y-5">
+                <Field label={`RPE — session effort: ${rpe}`} hint="1 = very easy, 10 = maximal">
+                    <div className="grid grid-cols-10 gap-1">
+                        {Array.from({ length: 10 }, (_, i) => i + 1).map((v) => (
+                            <button key={v} onClick={() => setRpe(v)}
+                                className={`h-9 rounded-lg text-xs font-bold transition-colors ${v === rpe ? 'bg-emerald-500 text-white' : 'bg-white/[0.07] text-gray-400'}`}>
+                                {v}
+                            </button>
+                        ))}
+                    </div>
+                </Field>
+
+                <Field label={`Discomfort during recovery: ${discomfort}`} hint="0 = none at all, 100 = as strong as it gets">
+                    <input type="range" min="0" max="100" value={discomfort} onChange={(e) => setDiscomfort(Number(e.target.value))} />
+                </Field>
+
+                <Field label="Note">
+                    <textarea rows="2" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional" />
+                </Field>
+            </Card>
+
+            <PrimaryButton onClick={() => onSave({
+                date: todayISO(),
+                week: state.week,
+                sprintReps: plan.sprintReps,
+                continuousSec: plan.continuousSec,
+                durationSec: result.durationSec,
+                rpe,
+                discomfort,
+                note: note.trim() || null,
+            })}>
+                Save
+            </PrimaryButton>
+            <button onClick={onDiscard} className="w-full text-xs text-gray-500 underline underline-offset-2 py-2">Close without saving</button>
+        </Screen>
+    );
+};
+
+/* =========================================================================
+   HISTORY
+   ========================================================================= */
+const LineChart = ({ points, color, unit = '', height = 140 }) => {
+    if (!points.length) return <p className="text-sm text-gray-500 py-6 text-center">No data yet</p>;
+    const W = 320, H = height, pad = { l: 30, r: 12, t: 14, b: 22 };
+    const values = points.map((p) => p.y);
+    let lo = Math.min(...values), hi = Math.max(...values);
+    if (hi === lo) { lo -= 1; hi += 1; }
+    const span = hi - lo;
+    lo -= span * 0.15; hi += span * 0.15;
+    const X = (i) => pad.l + (W - pad.l - pad.r) * (points.length === 1 ? 0.5 : i / (points.length - 1));
+    const Y = (v) => pad.t + (H - pad.t - pad.b) * (1 - (v - lo) / (hi - lo));
+    const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${X(i).toFixed(1)},${Y(p.y).toFixed(1)}`).join(' ');
+    const first = points[0].y, last = points[points.length - 1].y;
+
+    return (
+        <div>
+            <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img">
+                {[hi, (hi + lo) / 2, lo].map((t, i) => (
+                    <g key={i}>
+                        <line x1={pad.l} x2={W - pad.r} y1={Y(t)} y2={Y(t)} stroke="rgba(255,255,255,0.08)" />
+                        <text x={pad.l - 5} y={Y(t) + 3.5} textAnchor="end" fontSize="9" fill="rgba(255,255,255,0.4)">{Math.round(t)}</text>
+                    </g>
+                ))}
+                <path d={path} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+                {points.map((p, i) => <circle key={i} cx={X(i)} cy={Y(p.y)} r="3.2" fill={color} />)}
+                <text x={pad.l} y={H - 6} fontSize="9" fill="rgba(255,255,255,0.4)">{points[0].label}</text>
+                {points.length > 1 && (
+                    <text x={W - pad.r} y={H - 6} textAnchor="end" fontSize="9" fill="rgba(255,255,255,0.4)">{points[points.length - 1].label}</text>
+                )}
+            </svg>
+            <p className="text-xs text-gray-400 mt-1">First {first}{unit} → latest {last}{unit}</p>
+        </div>
+    );
+};
+
+const HistoryScreen = ({ state, setState, onBack }) => {
+    const { sessions } = state;
+    const recoverySec = sessions.reduce((a, s) => a + s.sprintReps * PROGRAM.phaseDefaults.recovery.durationSec, 0);
+
+    return (
+        <Screen title="History" onBack={onBack}>
+            <Card className="grid grid-cols-3 gap-2 text-center">
+                <Stat label="Sessions" value={sessions.length} />
+                <Stat label="Sprints" value={sessions.reduce((a, s) => a + s.sprintReps, 0)} />
+                <Stat label="Recovery time" value={`${Math.round(recoverySec / 60)} min`} small />
+            </Card>
+
+            <Card className="space-y-2">
+                <ChartHead title="Discomfort during recovery"
+                    sub="Expect this to ease as you get fitter, though it moves around from session to session." />
+                <LineChart points={sessions.map((s) => ({ y: s.discomfort, label: shortDate(s.date) }))} color="#818cf8" />
+            </Card>
+
+            <Card className="space-y-2">
+                <ChartHead title="Session RPE" sub="Sprints should stay at 9–10. A drifting number means the effort is drifting." />
+                <LineChart points={sessions.map((s) => ({ y: s.rpe, label: shortDate(s.date) }))} color="#f59e0b" />
+            </Card>
+
+            {sessions.length > 0 && (
+                <Card className="space-y-1">
+                    <ChartHead title="Sessions" />
+                    <div className="divide-y divide-white/[0.07] text-xs">
+                        {sessions.slice().reverse().map((s, i) => (
+                            <div key={i} className="py-2.5 space-y-1">
+                                <div className="flex items-center justify-between gap-2">
+                                    <span className="text-gray-300 font-medium">{shortDate(s.date)} · Week {s.week}</span>
+                                    <span className="text-gray-500">{s.sprintReps} × sprint · {fmtClock(s.continuousSec)}</span>
+                                </div>
+                                <div className="flex items-center gap-4 text-gray-500">
+                                    <span>RPE {s.rpe}</span>
+                                    <span>Discomfort {s.discomfort}</span>
+                                    <span>{fmtClock(s.durationSec)}</span>
+                                </div>
+                                {s.note && <p className="text-gray-400 italic">{s.note}</p>}
+                            </div>
+                        ))}
+                    </div>
+                    <button
+                        onClick={() => { if (confirm('Delete the most recent session?')) setState({ ...state, sessions: sessions.slice(0, -1) }); }}
+                        className="text-[11px] text-gray-600 underline underline-offset-2 pt-2">
+                        Delete most recent
+                    </button>
+                </Card>
+            )}
+        </Screen>
+    );
+};
+
+const Stat = ({ label, value, small }) => (
+    <div>
+        <p className={`font-black ${small ? 'text-lg' : 'text-2xl'}`}>{value}</p>
+        <p className="text-[11px] text-gray-500 mt-0.5">{label}</p>
+    </div>
+);
+
+const ChartHead = ({ title, sub }) => (
+    <div>
+        <p className="text-sm font-bold">{title}</p>
+        {sub && <p className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">{sub}</p>}
+    </div>
+);
+
+/* =========================================================================
+   SETTINGS
+   ========================================================================= */
+const SettingsScreen = ({ state, setState, onBack }) => {
+    const s = state.settings;
+    const update = (patch) => setState({ ...state, settings: { ...s, ...patch } });
+    const tanaka = tanakaHrMax(s.age);
+    const warm = zoneBpm(s, PROGRAM.phaseDefaults.warmup.hrPct);
+    const cont = zoneBpm(s, PROGRAM.phaseDefaults.continuous.hrPct);
+    const peak = zoneBpm(s, [0.88, 0.95]);
+
+    return (
+        <Screen title="Settings" onBack={onBack}>
+            <Card className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <label className="text-sm text-gray-300 font-medium">Age</label>
+                    <Stepper value={s.age} onChange={(v) => update({ age: v })} min={10} max={90} />
+                </div>
+                <Field label="HRmax" hint={`Tanaka formula (208 − 0.7 × age) = ${tanaka} bpm. Override it if you have a measured value — individual variation is roughly ±10 bpm.`}>
+                    <div className="flex gap-2 items-center">
+                        <input type="number" inputMode="numeric" value={s.hrMaxOverride ?? ''} placeholder={`${tanaka} (Tanaka)`}
+                            onChange={(e) => update({ hrMaxOverride: e.target.value === '' ? null : Number(e.target.value) })} />
+                        {s.hrMaxOverride != null && (
+                            <button onClick={() => update({ hrMaxOverride: null })} className="px-4 py-3 rounded-xl bg-white/10 text-xs shrink-0">Reset</button>
+                        )}
+                    </div>
+                </Field>
+                <Field label="Resting HR" hint="Only used by the Karvonen calculation.">
+                    <input type="number" inputMode="numeric" value={s.restingHr ?? ''} placeholder="e.g. 65"
+                        onChange={(e) => update({ restingHr: e.target.value === '' ? null : Number(e.target.value) })} />
+                </Field>
+                <Field label="Zone calculation">
+                    <div className="grid grid-cols-2 gap-2">
+                        <MethodButton active={!usesKarvonen(s)} onClick={() => update({ method: 'pct' })}
+                            title="%HRmax" sub="HRmax × intensity" />
+                        <MethodButton active={usesKarvonen(s)} onClick={() => update({ method: 'karvonen' })}
+                            title="Karvonen" sub="needs resting HR" disabled={!s.restingHr} />
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2">
+                        Karvonen returns higher targets than %HRmax for the same intensity. Currently showing <strong className="text-white">{methodLabel(s)}</strong>.
+                    </p>
+                </Field>
+            </Card>
+
+            <Card className="space-y-2">
+                <p className="text-xs uppercase tracking-widest text-gray-500 font-bold">Target zones</p>
+                <ZoneRow name="Warm-up" pct="60–70%" bpm={`${warm[0]}–${warm[1]}`} />
+                <ZoneRow name="Continuous run" pct="75–85%" bpm={`${cont[0]}–${cont[1]}`} highlight />
+                <ZoneRow name="Post-sprint peak" pct="88–95%" bpm={`${peak[0]}–${peak[1]}`} />
+                <p className="text-[11px] text-gray-500 pt-2 border-t border-white/10 leading-relaxed">
+                    Sprints have no HR target. Heart rate lags, so 20 seconds never reaches the ceiling — the only criterion is subjective all-out effort (RPE 9–10).
+                    The peak arrives 20–40 seconds after the sprint ends.
+                </p>
+            </Card>
+
+            <Card className="space-y-3">
+                <Toggle label="Sound cues" sub="Phase changes, last 5 s of a sprint, 30 s left in recovery"
+                    on={s.sound} onChange={(v) => update({ sound: v })} />
+                <Toggle label="Spoken phase names" on={s.speech} onChange={(v) => update({ speech: v })} />
+            </Card>
+
+            <Card className="space-y-3">
+                <p className="text-sm font-medium">Data</p>
+                <button onClick={() => {
+                    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `hiit-sessions-${todayISO()}.json`;
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                }} className="w-full py-3 rounded-xl bg-white/10 text-sm font-medium active:bg-white/20">
+                    Export as JSON
+                </button>
+                <button onClick={() => {
+                    if (confirm('Delete all history. This cannot be undone.')) setState({ ...DEFAULT_STATE, consented: true });
+                }} className="w-full py-3 rounded-xl bg-red-500/15 text-red-300 text-sm font-medium active:bg-red-500/25">
+                    Delete all data
+                </button>
+                <p className="text-[11px] text-gray-500">Stored only in this browser (localStorage). Clearing site data erases it.</p>
+            </Card>
+        </Screen>
+    );
+};
+
+const MethodButton = ({ active, onClick, title, sub, disabled }) => (
+    <button onClick={onClick} disabled={disabled}
+        className={`p-3 rounded-xl border text-left transition-colors disabled:opacity-35 ${
+            active ? 'bg-emerald-500/15 border-emerald-500/50' : 'bg-white/[0.05] border-white/10'}`}>
+        <p className="text-sm font-bold">{title}</p>
+        <p className="text-[11px] text-gray-400 mt-0.5">{sub}</p>
+    </button>
+);
+
+const ZoneRow = ({ name, pct, bpm, highlight }) => (
+    <div className="flex items-center justify-between text-sm gap-2">
+        <span className={highlight ? 'font-bold' : 'text-gray-300'}>{name}</span>
+        <span className="text-gray-500 text-xs ml-auto">{pct}</span>
+        <span className={`tabular-nums w-24 text-right ${highlight ? 'text-emerald-400 font-bold' : 'text-gray-300'}`}>{bpm} bpm</span>
+    </div>
+);
+
+const Toggle = ({ label, sub, on, onChange }) => (
+    <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+            <p className="text-sm font-medium">{label}</p>
+            {sub && <p className="text-[11px] text-gray-500 mt-0.5">{sub}</p>}
+        </div>
+        <button onClick={() => onChange(!on)} role="switch" aria-checked={on}
+            className={`w-12 h-7 rounded-full shrink-0 transition-colors relative ${on ? 'bg-emerald-500' : 'bg-white/15'}`}>
+            <span className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${on ? 'left-6' : 'left-1'}`} />
+        </button>
+    </div>
+);
+
+/* =========================================================================
+   ABOUT
+   ========================================================================= */
+const AboutScreen = ({ onBack }) => (
+    <Screen title="About the program" onBack={onBack}>
+        <Card className="space-y-3 text-sm text-gray-300 leading-relaxed">
+            <p className="text-white font-bold">What this is</p>
+            <p>Twelve weeks of sprint intervals with an unusually long recovery, followed by a continuous run at a steady target heart rate. Three sessions a week, at least one rest day between. Sessions run 21 to 32 minutes depending on the week.</p>
+        </Card>
+
+        <Card className="space-y-3 text-sm text-gray-300 leading-relaxed">
+            <p className="text-white font-bold">Why recovery is 120 seconds, not 40</p>
+            <p>At 40 seconds the later sprints stop being all-out and their quality collapses. Sprint count per session does not drive VO2max gains (Hutchinson 2026), so fewer, better reps is the efficient trade. Gillen 2016 ran 3 × 20 s all-out with 2-minute recovery — a 10-minute session — three times a week for 12 weeks and moved VO2peak from 32 to 38 mL/kg/min (+19%), matching 45 minutes of continuous exercise. The time freed up goes into the continuous run.</p>
+        </Card>
+
+        <Card className="space-y-3 text-sm text-gray-300 leading-relaxed">
+            <p className="text-white font-bold">Heart rate</p>
+            <p>The app has no sensor access. It only computes target zones from HRmax so you can read them off the watch or strap you already wear. HRmax defaults to the Tanaka formula, 208 − 0.7 × age, and the zone method (%HRmax or Karvonen) is always labelled on screen because the two give different numbers.</p>
+            <p>Sprints have no heart-rate target. Heart rate lags, so 20 seconds never reaches the ceiling and the peak lands 20–40 seconds after the sprint ends. The only sprint criterion is subjective all-out effort, RPE 9–10. Nothing is shown during the recovery walk either — the countdown is all you need there.</p>
+        </Card>
+
+        <Card className="space-y-3 text-sm text-gray-300 leading-relaxed">
+            <p className="text-white font-bold">12-week progression</p>
+            <p>One variable changes at a time. Sprint count and continuous duration never increase in the same step.</p>
+            <div className="text-xs">
+                <div className="grid grid-cols-4 gap-1 text-gray-500 font-bold pb-1 border-b border-white/10">
+                    <span>Week</span><span>Sprints</span><span>Run</span><span>Total</span>
+                </div>
+                {PROGRAM.weeks.map((w) => (
+                    <div key={w.week} className="grid grid-cols-4 gap-1 py-1 border-b border-white/[0.05] tabular-nums">
+                        <span>{w.week}</span><span>{w.sprintReps}</span>
+                        <span>{w.continuousSec / 60} min</span><span>{fmtClock(planTotalSec(w))}</span>
+                    </div>
+                ))}
+            </div>
+        </Card>
+
+        <Card className="space-y-2 text-xs text-gray-400 leading-relaxed">
+            <p className="text-white font-bold text-sm mb-1">References</p>
+            <p>Gillen et al. 2016, <em>PLOS ONE</em> 11:e0154075 — 3 × 20 s all-out, 10-minute sessions, 3×/week for 12 weeks: VO2peak +19%, equal to 45 minutes of continuous exercise.</p>
+            <p>Hutchinson et al. 2026, <em>Scand J Med Sci Sports</em> — meta-analysis: sprints per session does not determine VO2max improvement.</p>
+            <p>Tanaka et al. 2001, <em>J Am Coll Cardiol</em> 37:153–156 — HRmax = 208 − 0.7 × age.</p>
+        </Card>
+
+        <Card className="space-y-2 text-sm text-gray-300 leading-relaxed border-amber-500/25 bg-amber-500/[0.05]">
+            <p className="text-white font-bold">Disclaimer</p>
+            <p>This program includes all-out sprints. If you have cardiovascular history or risk factors, get medical clearance before starting.</p>
+        </Card>
+    </Screen>
+);
+
+/* =========================================================================
+   APP
+   ========================================================================= */
+const App = () => {
+    const [state, setStateRaw] = useState(loadState);
+    const [screen, setScreen] = useState('home');
+    const [activePlan, setActivePlan] = useState(null);
+    const [result, setResult] = useState(null);
+
+    const setState = useCallback((next) => {
+        setStateRaw(next);
+        saveState(next);
+    }, []);
+
+    useEffect(() => { Cues.setEnabled(state.settings.sound); }, [state.settings.sound]);
+
+    if (!state.consented) {
+        return <ConsentScreen onAccept={() => setState({ ...state, consented: true })} />;
+    }
+
+    if (screen === 'timer' && activePlan) {
+        return (
+            <TimerScreen
+                plan={activePlan}
+                settings={state.settings}
+                onFinish={(r) => { setResult(r); setScreen('log'); }}
+                onAbort={() => { setActivePlan(null); setScreen('home'); }}
+            />
         );
+    }
 
-        const SetupScreen = ({ onStart }) => {
-            const [warmupSec, setWarmupSec] = useState(120);
-            const [sets, setSets] = useState(8);
-            const [sprintSec, setSprintSec] = useState(20);
-            const [restSec, setRestSec] = useState(35);
+    if (screen === 'log' && activePlan && result) {
+        return (
+            <LogScreen
+                state={state}
+                plan={activePlan}
+                result={result}
+                onSave={(entry) => {
+                    const sessions = [...state.sessions, entry];
+                    setState({ ...state, sessions, week: clampWeek(Math.floor(sessions.length / PROGRAM.sessionsPerWeek) + 1) });
+                    setActivePlan(null); setResult(null); setScreen('home');
+                }}
+                onDiscard={() => { setActivePlan(null); setResult(null); setScreen('home'); }}
+            />
+        );
+    }
 
-            return (
-                <div className="fixed inset-0 bg-[#0a0a0a] text-white flex flex-col items-center justify-center p-6">
-                    <div className="w-full max-w-sm flex flex-col items-center gap-6 fade-in" style={{maxHeight: '100dvh'}}>
-                        {/* Title */}
-                        <div className="text-center shrink-0">
-                            <h1 className="text-3xl font-black tracking-tight">HIIT TIMER</h1>
-                        </div>
+    if (screen === 'history') return <HistoryScreen state={state} setState={setState} onBack={() => setScreen('home')} />;
+    if (screen === 'settings') return <SettingsScreen state={state} setState={setState} onBack={() => setScreen('home')} />;
+    if (screen === 'about') return <AboutScreen onBack={() => setScreen('home')} />;
 
-                        {/* Settings */}
-                        <div className="w-full space-y-5 shrink-0">
-                            <div className="flex items-center justify-between">
-                                <label className="text-base font-medium text-gray-300">ウォームアップ</label>
-                                <Stepper value={warmupSec} onChange={setWarmupSec} min={0} max={600} suffix="s" step={10} />
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <label className="text-base font-medium text-gray-300">セット数</label>
-                                <Stepper value={sets} onChange={setSets} min={1} max={50} />
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <label className="text-base font-medium text-gray-300">スプリント</label>
-                                <Stepper value={sprintSec} onChange={setSprintSec} min={5} max={120} suffix="s" />
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <label className="text-base font-medium text-gray-300">休憩</label>
-                                <Stepper value={restSec} onChange={setRestSec} min={5} max={120} suffix="s" />
-                            </div>
-                        </div>
-
-                        {/* Total time */}
-                        <div className="text-center text-sm text-gray-500 shrink-0">
-                            合計: {Math.floor((warmupSec + (sprintSec + restSec) * sets) / 60)}分{(warmupSec + (sprintSec + restSec) * sets) % 60}秒
-                        </div>
-
-                        {/* Start button */}
-                        <button
-                            onClick={() => onStart({ sets, sprintSec, restSec, warmupSec })}
-                            className="w-full py-5 rounded-2xl bg-emerald-500 text-white text-xl font-bold
-                                       active:scale-[0.97] transition-transform shrink-0"
-                        >
-                            START
-                        </button>
-                    </div>
-                </div>
-            );
-        };
-
-        // ========== TIMER SCREEN ==========
-        const TimerScreen = ({ config, onBack }) => {
-            const { sets, sprintSec, restSec, warmupSec } = config;
-
-            // phase: 'ready' | 'warmup' | 'sprint' | 'rest' | 'done'
-            const [phase, setPhase] = useState('ready');
-            const [currentSet, setCurrentSet] = useState(1);
-            const [timeLeft, setTimeLeft] = useState(3); // 3-sec countdown to start
-            const [isRunning, setIsRunning] = useState(true);
-            const [totalElapsed, setTotalElapsed] = useState(0);
-            const [flashKey, setFlashKey] = useState(0);
-            const timerRef = useRef(null);
-            const popRef = useRef(null);
-
-            const phaseDuration = phase === 'ready' ? 3 : phase === 'warmup' ? warmupSec : phase === 'sprint' ? sprintSec : restSec;
-            const progress = phaseDuration > 0 ? (phaseDuration - timeLeft) / phaseDuration : 1;
-
-            // Ring geometry
-            const radius = 120;
-            const circumference = 2 * Math.PI * radius;
-            const dashOffset = circumference * (1 - progress);
-
-            const formatTime = (s) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
-
-            // Advance phase
-            const nextPhase = useCallback(() => {
-                setFlashKey(k => k + 1);
-                if (phase === 'ready') {
-                    if (warmupSec > 0) {
-                        setPhase('warmup');
-                        setTimeLeft(warmupSec);
-                    } else {
-                        setPhase('sprint');
-                        setTimeLeft(sprintSec);
-                    }
-                } else if (phase === 'warmup') {
-                    setPhase('sprint');
-                    setTimeLeft(sprintSec);
-                } else if (phase === 'sprint') {
-                    setPhase('rest');
-                    setTimeLeft(restSec);
-                } else if (phase === 'rest') {
-                    if (currentSet < sets) {
-                        setCurrentSet(c => c + 1);
-                        setPhase('sprint');
-                        setTimeLeft(sprintSec);
-                    } else {
-                        setPhase('done');
-                        setIsRunning(false);
-                    }
-                }
-            }, [phase, currentSet, sets, sprintSec, restSec, warmupSec]);
-
-            // Timer tick
-            useEffect(() => {
-                if (!isRunning || phase === 'done') {
-                    clearInterval(timerRef.current);
-                    return;
-                }
-                timerRef.current = setInterval(() => {
-                    setTimeLeft(prev => {
-                        if (prev <= 1) {
-                            nextPhase();
-                            return 0;
-                        }
-                        return prev - 1;
-                    });
-                    if (phase !== 'ready') setTotalElapsed(t => t + 1);
-                }, 1000);
-                return () => clearInterval(timerRef.current);
-            }, [isRunning, phase, nextPhase]);
-
-            // Pop animation on timeLeft change
-            useEffect(() => {
-                if (popRef.current) {
-                    popRef.current.classList.remove('count-pop');
-                    void popRef.current.offsetWidth;
-                    popRef.current.classList.add('count-pop');
-                }
-            }, [timeLeft]);
-
-            const togglePause = () => {
-                if (phase === 'done') return;
-                setIsRunning(r => !r);
-            };
-
-            const phaseColors = {
-                ready: { bg: 'from-gray-900 to-gray-800', ring: '#6b7280', text: 'READY' },
-                warmup: { bg: 'from-yellow-900/80 to-amber-900/60', ring: '#f59e0b', text: 'WARM UP' },
-                sprint: { bg: 'from-red-900/80 to-orange-900/60', ring: '#ef4444', text: 'SPRINT' },
-                rest: { bg: 'from-blue-900/80 to-cyan-900/60', ring: '#3b82f6', text: 'REST' },
-                done: { bg: 'from-gray-900 to-gray-800', ring: '#10b981', text: '' },
-            };
-            const c = phaseColors[phase];
-
-            if (phase === 'done') {
-                return (
-                    <div className="fixed inset-0 bg-[#0a0a0a] text-white flex flex-col items-center justify-center p-6">
-                        <div className="text-center slide-up space-y-6">
-                            <svg width="100" height="100" viewBox="0 0 100 100" className="mx-auto">
-                                <circle cx="50" cy="50" r="38" fill="none" stroke="#10b981" strokeWidth="4"
-                                    strokeDasharray="220" style={{animation: 'circle-draw 0.6s ease-out forwards'}} />
-                                <path d="M30 52 L44 66 L70 36" fill="none" stroke="#10b981" strokeWidth="5"
-                                    strokeLinecap="round" strokeLinejoin="round"
-                                    strokeDasharray="48" style={{animation: 'check-draw 0.4s ease-out 0.4s forwards', strokeDashoffset: 48}} />
-                            </svg>
-                            <div>
-                                <h2 className="text-4xl font-black">COMPLETE!</h2>
-                                <p className="text-lg text-gray-400 mt-2">{sets}セット / {formatTime(totalElapsed)}</p>
-                            </div>
-                            <div className="flex gap-4 justify-center mt-8">
-                                <button onClick={onBack}
-                                    className="px-8 py-4 rounded-2xl bg-white/10 text-white text-lg font-bold
-                                               active:scale-[0.97] transition-transform">
-                                    戻る
-                                </button>
-                                <button onClick={() => {
-                                        setPhase('ready');
-                                        setCurrentSet(1);
-                                        setTimeLeft(3);
-                                        setTotalElapsed(0);
-                                        setIsRunning(true);
-                                    }}
-                                    className="px-8 py-4 rounded-2xl bg-emerald-500 text-white text-lg font-bold
-                                               active:scale-[0.97] transition-transform">
-                                    もう1回
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                );
-            }
-
-            return (
-                <div className={`fixed inset-0 bg-gradient-to-b ${c.bg} text-white flex transition-all duration-700`}>
-                    {/* Flash overlay on phase change */}
-                    <div key={flashKey} className="fixed inset-0 bg-white pointer-events-none"
-                         style={{animation: 'flash-bg 0.4s ease-out forwards'}} />
-
-                    {/* Layout: responsive for portrait & landscape */}
-                    <div className="w-full h-full flex flex-col landscape:flex-row items-center justify-evenly p-4 gap-2">
-
-                        {/* Top / Left: phase label + set info */}
-                        <div className="flex flex-col items-center gap-1 shrink-0 fade-in">
-                            <span className="text-sm font-bold tracking-[0.3em] uppercase opacity-60">{c.text}</span>
-                            {phase !== 'ready' && phase !== 'warmup' && (
-                                <>
-                                    <div className="flex items-center gap-2">
-                                        {Array.from({ length: sets }, (_, i) => (
-                                            <div key={i} className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${
-                                                i < currentSet - 1 ? 'bg-white/80 scale-75' :
-                                                i === currentSet - 1 ? 'bg-white scale-110' :
-                                                'bg-white/20'
-                                            }`} />
-                                        ))}
-                                    </div>
-                                    <span className="text-xs text-white/40 mt-0.5">{currentSet} / {sets}</span>
-                                </>
-                            )}
-                        </div>
-
-                        {/* Center: circular timer */}
-                        <div className="relative flex items-center justify-center shrink-0" onClick={togglePause}>
-                            <svg className="progress-ring" viewBox="0 0 260 260"
-                                 style={{width: 'min(60vw, 55vh)', height: 'min(60vw, 55vh)'}}>
-                                <circle className="progress-ring__bg" cx="130" cy="130" r={radius}
-                                    fill="none" strokeWidth="8" />
-                                <circle className="progress-ring__fill" cx="130" cy="130" r={radius}
-                                    fill="none" strokeWidth="8" stroke={c.ring}
-                                    strokeDasharray={circumference} strokeDashoffset={dashOffset} />
-                            </svg>
-                            <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                <div ref={popRef} className="font-black tabular-nums leading-none"
-                                     style={{fontSize: phase === 'warmup' ? 'min(16vw, 14vh)' : 'min(20vw, 18vh)'}}>
-                                    {phase === 'warmup' ? formatTime(timeLeft) : timeLeft}
-                                </div>
-                                {!isRunning && phase !== 'done' && (
-                                    <div className="text-sm font-bold tracking-widest opacity-60 mt-2">PAUSED</div>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Bottom / Right: next up + controls */}
-                        <div className="flex flex-col items-center gap-3 shrink-0">
-                            {/* Next up label */}
-                            {phase === 'warmup' ? (
-                                <div className="text-center opacity-50 text-sm">
-                                    <span className="uppercase tracking-wider text-xs font-bold">Next</span>
-                                    <div className="font-bold">SPRINT {sprintSec}s</div>
-                                </div>
-                            ) : phase === 'sprint' ? (
-                                <div className="text-center opacity-50 text-sm">
-                                    <span className="uppercase tracking-wider text-xs font-bold">Next</span>
-                                    <div className="font-bold">REST {restSec}s</div>
-                                </div>
-                            ) : phase === 'rest' ? (
-                                currentSet < sets ? (
-                                    <div className="text-center opacity-50 text-sm">
-                                        <span className="uppercase tracking-wider text-xs font-bold">Next</span>
-                                        <div className="font-bold">SPRINT {sprintSec}s</div>
-                                    </div>
-                                ) : (
-                                    <div className="text-center opacity-50 text-sm">
-                                        <span className="uppercase tracking-wider text-xs font-bold">Last set!</span>
-                                    </div>
-                                )
-                            ) : phase === 'ready' ? (
-                                warmupSec > 0 ? (
-                                    <div className="text-center opacity-50 text-sm">
-                                        <span className="uppercase tracking-wider text-xs font-bold">Next</span>
-                                        <div className="font-bold">WARM UP {formatTime(warmupSec)}</div>
-                                    </div>
-                                ) : (
-                                    <div className="text-center opacity-50 text-sm">
-                                        <span className="uppercase tracking-wider text-xs font-bold">Next</span>
-                                        <div className="font-bold">SPRINT {sprintSec}s</div>
-                                    </div>
-                                )
-                            ) : (
-                                <div className="text-center opacity-50 text-sm h-10" />
-                            )}
-
-                            {/* Pause / Resume button */}
-                            <button onClick={togglePause}
-                                className={`w-16 h-16 rounded-full flex items-center justify-center transition-all active:scale-90 ${
-                                    isRunning ? 'bg-white/15' : 'bg-white/25'
-                                }`}>
-                                {isRunning ? (
-                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="white">
-                                        <rect x="6" y="4" width="4" height="16" rx="1"/>
-                                        <rect x="14" y="4" width="4" height="16" rx="1"/>
-                                    </svg>
-                                ) : (
-                                    <svg width="28" height="28" viewBox="0 0 24 24" fill="white">
-                                        <polygon points="8 4 20 12 8 20"/>
-                                    </svg>
-                                )}
-                            </button>
-
-                            {/* Back button */}
-                            <button onClick={onBack}
-                                className="text-xs text-white/30 underline underline-offset-2">
-                                やめる
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            );
-        };
-
-        // ========== APP ==========
-        const App = () => {
-            const [screen, setScreen] = useState('setup'); // 'setup' | 'timer'
-            const [config, setConfig] = useState(null);
-
-            const handleStart = (cfg) => {
-                setConfig(cfg);
+    return (
+        <HomeScreen
+            state={state}
+            setState={setState}
+            go={setScreen}
+            onStart={(plan) => {
+                if (state.settings.sound) Cues.unlock();
+                setActivePlan(plan);
                 setScreen('timer');
-            };
+            }}
+        />
+    );
+};
 
-            if (screen === 'timer' && config) {
-                return <TimerScreen config={config} onBack={() => setScreen('setup')} />;
-            }
-            return <SetupScreen onStart={handleStart} />;
-        };
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
     </script>
 </body>
 </html>
